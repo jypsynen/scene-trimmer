@@ -3,11 +3,9 @@ import cv2
 import tempfile
 import os
 from moviepy.editor import VideoFileClip, concatenate_videoclips
-from scenedetect import VideoManager, SceneManager
-from scenedetect.detectors import ContentDetector
 
-st.set_page_config(page_title="Scene-Based Video Trimmer", layout="centered")
-st.title("🎬 Scene-Based Video Trimmer")
+st.set_page_config(page_title="Smart Video Trimmer", layout="centered")
+st.title("🎬 Smart Video Trimmer (No Scene Detection)")
 
 uploaded_file = st.file_uploader("Upload a video (up to 1GB)", type=["mp4", "mov"], accept_multiple_files=False, key="video_uploader", help="Max file size: 1GB")
 
@@ -19,50 +17,42 @@ if uploaded_file is not None:
     video_path = tfile.name
 
     st.video(video_path)
-    st.info("⏳ Detecting scenes and trimming... Please wait.")
+    st.info("⏳ Trimming video into segments... Please wait.")
 
-    # Scene detection setup
-    video_manager = VideoManager([video_path])
-    scene_manager = SceneManager()
-    scene_manager.add_detector(ContentDetector(threshold=30.0))
+    clip = VideoFileClip(video_path)
+    duration = int(clip.duration)
 
-    try:
-        video_manager.set_downscale_factor()
-        video_manager.start()
-        scene_manager.detect_scenes(frame_source=video_manager)
-        scene_list = scene_manager.get_scene_list()
-    finally:
-        video_manager.release()
-
-    if len(scene_list) < 3:
-        st.error("❌ Not enough distinct scenes found. Try a longer or more dynamic video.")
-        st.stop()
-
-    # Convert scene timecodes to seconds
-    scene_times = [(scene[0].get_seconds(), scene[1].get_seconds()) for scene in scene_list]
-    scene_times = sorted(scene_times, key=lambda x: x[1] - x[0], reverse=True)[:3]  # pick 3 longest scenes
+    if duration < 180:
+        st.warning("⚠️ Short video detected. Will generate shorter clips.")
+        segment_length = max(10, duration // 3)  # minimum 10 seconds
+        starts = [i * segment_length for i in range(duration // segment_length)]
+        selected_segments = [(start, min(start + segment_length, duration)) for start in starts[:3]]
+    else:
+        segment_length = 60
+        spacing = (duration - segment_length * 3) // 4
+        starts = [spacing, spacing * 2 + segment_length, spacing * 3 + segment_length * 2]
+        selected_segments = [(start, start + segment_length) for start in starts if start + segment_length <= duration]
 
     merged_clips = []
-    clip = VideoFileClip(video_path)
-    for start, end in scene_times:
+    for start, end in selected_segments:
         try:
             subclip = clip.subclip(start, end)
             merged_clips.append(subclip)
         except Exception as e:
-            st.warning(f"⚠️ Skipped a scene due to error: {e}")
+            st.warning(f"⚠️ Skipped a segment due to error: {e}")
 
     if merged_clips:
         final_clip = concatenate_videoclips(merged_clips)
-        merged_path = os.path.join(tempfile.gettempdir(), "merged_scene_clip.mp4")
+        merged_path = os.path.join(tempfile.gettempdir(), "merged_summary_clip.mp4")
         final_clip.write_videofile(merged_path, codec="libx264", audio_codec="aac", verbose=False, logger=None)
 
         st.video(merged_path)
         with open(merged_path, "rb") as f:
             st.download_button(
-                label="📥 Download Scene Summary",
+                label="📥 Download Trimmed Summary",
                 data=f.read(),
-                file_name="scene_summary.mp4",
+                file_name="summary_clip.mp4",
                 mime="video/mp4"
             )
     else:
-        st.error("❌ No clips were successfully created from detected scenes.")
+        st.error("❌ No clips were successfully created.")
