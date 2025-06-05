@@ -1,4 +1,6 @@
 streamlit
-moviepy
-scenedetect
+moviepy==1.0.3
+imageio-ffmpeg
+scenedetect==0.6.1
 opencv-python-headless
+numpy<1.24  # ensures compatibility
